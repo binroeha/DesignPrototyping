@@ -34,6 +34,7 @@ function Icon({ children }: { children: React.ReactNode }) {
 export default function App() {
   const [selected, setSelected] = useState('전체 범죄')
   const [activePeriod, setActivePeriod] = useState(5)
+  const [page, setPage] = useState<'dashboard' | 'insights'>('dashboard')
   const visible = useMemo(() => selected === '전체 범죄'
     ? [{ name: '전체 범죄', total: 1225045, values: totals, color: '#7c3aed' }]
     : crimes.filter((c) => c.name === selected), [selected])
@@ -52,12 +53,10 @@ export default function App() {
         <div className="brand"><span className="brand-mark">D</span><span>DATA SCOPE</span></div>
         <nav>
           <p className="nav-label">OVERVIEW</p>
-          <a className="nav-item active"><Icon>⌁</Icon>분석 대시보드</a>
-          <a className="nav-item"><Icon>▥</Icon>데이터 탐색</a>
-          <a className="nav-item"><Icon>↗</Icon>추이 분석</a>
-          <p className="nav-label second">REPORT</p>
-          <a className="nav-item"><Icon>□</Icon>리포트</a>
-          <a className="nav-item"><Icon>↓</Icon>데이터 다운로드</a>
+          <a className={`nav-item ${page === 'dashboard' ? 'active' : ''}`} href="#dashboard" onClick={() => setPage('dashboard')}><Icon>⌁</Icon>분석 대시보드</a>
+          <a className={`nav-item ${page === 'insights' ? 'active' : ''}`} href="#insights" onClick={() => setPage('insights')}><Icon>◇</Icon>핵심 인사이트</a>
+          <p className="nav-label second">DATA</p>
+          <a className="nav-item" href="/crime-arrest-period-2025.csv" download><Icon>↓</Icon>데이터 다운로드</a>
         </nav>
         <div className="source-card">
           <div className="source-icon">i</div>
@@ -68,6 +67,7 @@ export default function App() {
       </aside>
 
       <main>
+        <div className={`dashboard-page ${page !== 'dashboard' ? 'is-hidden' : ''}`} id="dashboard">
         <header>
           <div>
             <p className="eyebrow">CRIME DATA INSIGHT</p>
@@ -82,7 +82,7 @@ export default function App() {
                 {crimes.map((c) => <option key={c.name}>{c.name}</option>)}
               </select>
             </label>
-            <button className="download">↓&nbsp;&nbsp;CSV 내보내기</button>
+            <a className="download" href="/crime-arrest-period-2025.csv" download>↓&nbsp;&nbsp;CSV 내보내기</a>
           </div>
         </header>
 
@@ -130,40 +130,68 @@ export default function App() {
             </div>
           </article>
 
-          <article className="panel insight">
-            <div className="panel-heading"><div><h2>핵심 인사이트</h2><p>데이터에서 발견한 주요 특징</p></div></div>
-            <div className="insight-item">
-              <span className="insight-num violet">01</span>
-              <div><strong>교통범죄는 절반 이상이 하루 안에 검거</strong><p>현장 적발 비중이 높아 1일 이내 검거율이 <b>51.8%</b>로 가장 높습니다.</p></div>
-            </div>
-            <div className="insight-item">
-              <span className="insight-num sky">02</span>
-              <div><strong>지능범죄는 장기 수사가 두드러져요</strong><p>3개월 이후 검거 비중이 <b>57.7%</b>로 전체 유형 중 가장 높습니다.</p></div>
-            </div>
-            <div className="insight-item">
-              <span className="insight-num amber">03</span>
-              <div><strong>전체의 65.4%가 3개월 안에 해결</strong><p>수사 개시 후 3개월이 사건 해결의 핵심 골든타임으로 나타납니다.</p></div>
-            </div>
-          </article>
         </section>
 
         <section className="panel comparison">
           <div className="panel-heading">
-            <div><h2>{selected === '전체 범죄' ? '전체 범죄 검거 속도' : `${selected} 검거 속도`}</h2><p>전체 검거 건수를 모수로 주요 기간의 비중을 비교합니다</p></div>
+            <div><h2>{selected === '전체 범죄' ? '전체 범죄 검거 속도' : `${selected} 검거 속도`}</h2><p>전체 검거 건수를 모수로 9개 검거기간의 비중을 비교합니다</p></div>
             <div className="speed-legend"><span><i className="d1" />진한 색일수록 높은 비중</span></div>
           </div>
           <div className="crime-list">
             {visible.map((crime) => (
               <div className="crime-row" key={crime.name}>
                 <div className="crime-name"><span style={{ background: crime.color }} /> <b>{crime.name}</b><small>{format(crime.total)}건</small></div>
-                <div className="stack">
-                  {[crime.values[0], crime.values[4], crime.values[5]].map((value, index, segments) => (
-                    <i className={shadeRank(segments, index)} key={index} style={{ width: `${value / crime.total * 100}%` }} />
-                  ))}
+                <div className="stack-visual">
+                  <div className="segment-labels">
+                    {crime.values.map((value, index, segments) => (
+                      <span className={shadeRank(segments, index).replace('shade', 'text')} key={index} style={{ width: `${value / crime.total * 100}%` }}>
+                        <small>{periods[index]}</small>
+                        <b>{(value / crime.total * 100).toFixed(1)}%</b>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="stack">
+                    {crime.values.map((value, index, segments) => (
+                      <i className={shadeRank(segments, index)} key={index} style={{ width: `${value / crime.total * 100}%` }} />
+                    ))}
+                  </div>
                 </div>
-                <div className="percent"><b>{(crime.values[0] / crime.total * 100).toFixed(1)}%</b><span>{(crime.values[4] / crime.total * 100).toFixed(1)}%</span><span>{(crime.values[5] / crime.total * 100).toFixed(1)}%</span></div>
               </div>
             ))}
+          </div>
+        </section>
+        </div>
+
+        <section className={`insights-page ${page !== 'insights' ? 'is-hidden' : ''}`} id="insights">
+          <header>
+            <div>
+              <p className="eyebrow">CRIME DATA INSIGHT</p>
+              <h1>핵심 인사이트</h1>
+              <p className="subtitle">2025년 범죄 검거 데이터에서 발견한 주요 특징입니다.</p>
+            </div>
+          </header>
+          <div className="insight-grid">
+            <article className="panel insight-card violet-card">
+              <span className="insight-num violet">01</span>
+              <p className="insight-kicker">FASTEST ARREST</p>
+              <h2>교통범죄는 절반 이상이<br />하루 안에 검거됩니다</h2>
+              <strong className="insight-stat">51.8%</strong>
+              <p>현장 적발 비중이 높아 전체 범죄유형 중 1일 이내 검거율이 가장 높습니다.</p>
+            </article>
+            <article className="panel insight-card sky-card">
+              <span className="insight-num sky">02</span>
+              <p className="insight-kicker">LONG-TERM INVESTIGATION</p>
+              <h2>지능범죄는 장기 수사가<br />두드러집니다</h2>
+              <strong className="insight-stat">57.7%</strong>
+              <p>사기·횡령 등 복잡한 사건이 많아 3개월 이후 검거 비중이 가장 높습니다.</p>
+            </article>
+            <article className="panel insight-card amber-card">
+              <span className="insight-num amber">03</span>
+              <p className="insight-kicker">GOLDEN TIME</p>
+              <h2>사건 해결의 골든타임은<br />수사 개시 후 3개월입니다</h2>
+              <strong className="insight-stat">65.4%</strong>
+              <p>전체 사건의 약 3분의 2가 발생 이후 3개월 이내에 검거로 이어집니다.</p>
+            </article>
           </div>
         </section>
         <footer>경찰청 범죄통계 원자료를 기반으로 시각화했습니다. 단위: 건, 구성비는 반올림으로 합계가 다를 수 있습니다.</footer>

@@ -9,6 +9,7 @@
 }
 
 * { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 body { margin: 0; min-width: 320px; }
 button, select { font: inherit; }
 button { cursor: pointer; }
@@ -35,7 +36,7 @@ h1 { font-size: 28px; letter-spacing: -.04em; margin: 0; color: #121a2b; }
 .header-actions { display: flex; align-items: end; gap: 10px; }
 .select-wrap { display: flex; flex-direction: column; gap: 6px; color: #8a93a5; font-size: 10px; }
 select, .download { height: 38px; border-radius: 8px; border: 1px solid #e0e4ec; background: #fff; color: #273044; font-size: 11px; padding: 0 34px 0 12px; }
-.download { padding: 0 16px; background: #121a2b; color: #fff; border-color: #121a2b; }
+.download { padding: 0 16px; background: #121a2b; color: #fff; border-color: #121a2b; display:flex;align-items:center;text-decoration:none; }
 .kpis { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 14px; }
 .kpi, .panel { background: #fff; border: 1px solid #e8ebf1; border-radius: 13px; box-shadow: 0 5px 18px rgba(19,27,45,.035); }
 .kpi { padding: 18px 20px 16px; }
@@ -46,6 +47,7 @@ select, .download { height: 38px; border-radius: 8px; border: 1px solid #e0e4ec;
 .kpi small { font: 500 11px 'Noto Sans KR'; margin-left: 4px; color: #778094; }
 .kpi p { margin: 0; font-size: 10px; color: #a0a6b3; }.kpi em { color: #16a085; font-style: normal; font-weight: 700; margin-right: 5px; }.kpi .orange-text{color:#e66f21}
 .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 14px; }
+.distribution { grid-column: 1 / -1; }
 .panel { padding: 21px 22px; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; }
 .panel h2 { font-size: 14px; letter-spacing: -.02em; margin: 0 0 5px; }
@@ -60,17 +62,18 @@ select, .download { height: 38px; border-radius: 8px; border: 1px solid #e0e4ec;
 .bar { width:100%;display:block;border-radius:5px 5px 0 0;background:#ddd5f7;transition:.2s}.bar-item:hover .bar,.bar-item.selected .bar{background:linear-gradient(180deg,#8c6be7,#6847ce)}
 .bar-label { font-size: 8px; height: 28px; padding-top: 8px; white-space: nowrap; }
 .chart-note { display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:10px 12px;border-radius:8px;background:#f7f5fd;font-size:9px;color:#767f91}.chart-note b{color:#6847ce;margin-right:7px}.chart-note strong{color:#493a81}
-.insight { padding-bottom: 11px; }
+.insight { padding-bottom: 11px; scroll-margin-top: 24px; }
 .insight-item { display:flex;gap:13px;padding:16px 0;border-bottom:1px solid #eef0f4}.insight-item:last-child{border:0}
 .insight-num{flex:0 0 29px;height:29px;border-radius:8px;display:grid;place-items:center;font:700 9px 'DM Sans'}.violet{background:#eee9fe;color:#7048d9}.sky{background:#e5f5fc;color:#1684d9}.amber{background:#fff1e2;color:#e67a28}
 .insight-item strong{font-size:11px}.insight-item p{font-size:9px;line-height:1.6;color:#8d95a5;margin:5px 0 0}.insight-item p b{color:#596174}
 .comparison { margin-bottom: 16px; }
-.crime-list { margin-top:18px;display:grid;grid-template-columns:1fr 1fr;column-gap:36px;row-gap:15px }
-.crime-row{display:grid;grid-template-columns:120px 1fr 128px;align-items:center;gap:12px}
+.crime-list { margin-top:18px;display:grid;grid-template-columns:1fr;row-gap:15px }
+.crime-row{display:grid;grid-template-columns:120px minmax(0,1fr);align-items:end;gap:18px}
 .crime-name{display:grid;grid-template-columns:7px 1fr;align-items:center;column-gap:8px}.crime-name>span{width:7px;height:7px;border-radius:50%}.crime-name b{font-size:10px}.crime-name small{grid-column:2;font:500 8px 'DM Sans';color:#9aa2b1;margin-top:2px}
-.stack{height:22px;background:#f0edf8;border-radius:7px;display:flex;overflow:hidden;box-shadow:inset 0 0 0 1px #e8e3f4}.stack i{height:100%;display:block;transition:width .25s ease}.stack .shade-1{background:#6542c7}.stack .shade-2{background:#9b82e4}.stack .shade-3{background:#d5cbf5}
-.percent{display:flex;gap:12px;font:600 8px 'DM Sans';color:#989fad}.percent b{color:#6242c6}
+.stack-visual{width:100%}.segment-labels{display:flex;height:38px;align-items:start}.segment-labels span{flex:none;text-align:center;font:700 9px 'DM Sans';white-space:nowrap;overflow:visible}.segment-labels small,.segment-labels b{display:block}.segment-labels small{font:500 7px 'Noto Sans KR';margin-bottom:2px}.segment-labels .text-1{color:#5736b4}.segment-labels .text-2{color:#6c4bc4}.segment-labels .text-3{color:#8062cf}.segment-labels .text-4{color:#9277d7}.segment-labels .text-5{color:#a38cde}.segment-labels .text-6{color:#b3a0e4}.segment-labels .text-7{color:#c2b3e9}.segment-labels .text-8{color:#cfc3ed}.segment-labels .text-9{color:#dbd2f1}
+.stack{height:24px;background:#f0edf8;border-radius:7px;display:flex;overflow:hidden;box-shadow:inset 0 0 0 1px #e8e3f4}.stack i{height:100%;display:block;transition:width .25s ease}.stack .shade-1{background:#5736b4}.stack .shade-2{background:#6c4bc4}.stack .shade-3{background:#8062cf}.stack .shade-4{background:#9277d7}.stack .shade-5{background:#a38cde}.stack .shade-6{background:#b3a0e4}.stack .shade-7{background:#c2b3e9}.stack .shade-8{background:#cfc3ed}.stack .shade-9{background:#dbd2f1}
+.is-hidden{display:none}.insights-page{min-height:calc(100vh - 80px)}.insight-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.insight-card{min-height:360px;padding:28px;position:relative;overflow:hidden}.insight-card:after{content:"";position:absolute;width:180px;height:180px;border-radius:50%;right:-70px;bottom:-70px;opacity:.08;background:currentColor}.insight-card .insight-num{margin-bottom:46px}.insight-kicker{font:700 9px 'DM Sans';letter-spacing:.14em;color:#9299a8}.insight-card h2{font-size:18px;line-height:1.55;margin:10px 0 24px}.insight-stat{display:block;font:700 42px 'DM Sans';letter-spacing:-.05em;margin-bottom:12px}.insight-card>p:last-child{font-size:11px;line-height:1.8;color:#858e9f;max-width:260px}.violet-card{color:#6847ce}.sky-card{color:#1684d9}.amber-card{color:#e67a28}
 footer{text-align:center;color:#a4aab6;font-size:9px;padding:6px}
-@media(max-width:1050px){.sidebar{width:190px}main{margin-left:190px;width:calc(100% - 190px);padding:28px 24px}.kpis{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.crime-list{grid-template-columns:1fr}}
-@media(max-width:720px){.sidebar{display:none}main{margin:0;width:100%;padding:22px 16px}header{align-items:flex-start;gap:20px;flex-direction:column}.header-actions{width:100%}.select-wrap{flex:1}.select-wrap select{width:100%}.kpis{grid-template-columns:1fr 1fr}.chart{gap:3px}.bar-label{font-size:7px;writing-mode:vertical-rl}.chart-note{display:none}.crime-row{grid-template-columns:100px 1fr}.percent{display:none}}
+@media(max-width:1050px){.sidebar{width:190px}main{margin-left:190px;width:calc(100% - 190px);padding:28px 24px}.kpis{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.crime-list{grid-template-columns:1fr}.insight-grid{grid-template-columns:1fr}}
+@media(max-width:720px){.sidebar{display:none}main{margin:0;width:100%;padding:22px 16px}header{align-items:flex-start;gap:20px;flex-direction:column}.header-actions{width:100%}.select-wrap{flex:1}.select-wrap select{width:100%}.kpis{grid-template-columns:1fr 1fr}.chart{gap:3px}.bar-label{font-size:7px;writing-mode:vertical-rl}.chart-note{display:none}.crime-row{grid-template-columns:82px minmax(0,1fr);gap:10px}}
 @media(max-width:460px){.kpis{grid-template-columns:1fr}.header-actions{flex-direction:column;align-items:stretch}.download{width:100%}.crime-list{gap:18px}.panel{padding:18px 14px}.speed-legend{display:none}}
