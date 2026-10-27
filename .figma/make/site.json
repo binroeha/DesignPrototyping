@@ -1,0 +1,10 @@
+{
+  "description": "데이터를 차트와 그래프로 시각화해 누구나 정보를 쉽게 이해하고 인사이트를 발견할 수 있도록 돕습니다.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
