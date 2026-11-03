@@ -78,3 +78,23 @@ footer{text-align:center;color:#a4aab6;font-size:9px;padding:6px}
 @media(max-width:1050px){.sidebar{width:190px}main{margin-left:190px;width:calc(100% - 190px);padding:28px 24px}.kpis,.sensor-kpis{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.crime-list{grid-template-columns:1fr}.insight-grid{grid-template-columns:1fr}.sensor-layout{grid-template-columns:1fr}}
 @media(max-width:720px){.sidebar{display:none}main{margin:0;width:100%;padding:22px 16px}header{align-items:flex-start;gap:20px;flex-direction:column}.header-actions{width:100%}.select-wrap{flex:1}.select-wrap select{width:100%}.kpis{grid-template-columns:1fr 1fr}.chart{gap:3px}.bar-label{font-size:7px;writing-mode:vertical-rl}.chart-note{display:none}.crime-row{grid-template-columns:82px minmax(0,1fr);gap:10px}}
 @media(max-width:460px){.kpis,.sensor-kpis{grid-template-columns:1fr}.header-actions{flex-direction:column;align-items:stretch}.download{width:100%}.crime-list{gap:18px}.panel{padding:18px 14px}.speed-legend{display:none}.sensor-status{width:100%}}
+.serial-dashboard{display:grid;grid-template-columns:minmax(220px,.7fr) minmax(0,2fr);gap:14px;margin-bottom:14px}
+.serial-current{display:flex;flex-direction:column;justify-content:space-between;min-height:290px}
+.serial-current .panel-heading{align-items:flex-start}
+.serial-current .panel-heading p{max-width:210px;line-height:1.6}
+.serial-current .live-dot{flex:0 0 9px;margin:5px 3px 0 10px}
+.serial-current>strong{display:block;overflow-wrap:anywhere;font:700 34px 'DM Sans';letter-spacing:-.04em;color:#1c2537;margin:30px 0 10px}
+.serial-current>span{font-size:9px;color:#929aaa}
+.dashboard-serial-button{height:38px;white-space:nowrap;margin-left:0;padding:0 12px;font-size:10px}
+.serial-button:disabled{opacity:.68;cursor:default}
+.serial-chart-panel{min-width:0}
+.serial-chart-legend{font-size:9px;color:#81899a}
+.serial-chart-legend i{display:inline-block;width:12px;height:2px;background:#7656de;margin-right:5px;vertical-align:middle}
+.serial-chart{height:190px;margin-top:18px;position:relative}
+.serial-chart .chart-grid{inset:0}
+.serial-chart svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.serial-chart polyline{fill:none;stroke:#7656de;stroke-width:3;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
+.serial-chart circle{fill:#7656de}
+.serial-chart-empty{position:absolute;inset:0;display:grid;place-items:center;font-size:10px;color:#a0a7b4}
+.serial-chart-footer{display:flex;justify-content:space-between;margin-top:10px;color:#9aa2b1;font-size:9px}
+@media(max-width:720px){.serial-dashboard{grid-template-columns:1fr}.serial-current{min-height:220px}.header-actions .dashboard-serial-button{width:100%}}

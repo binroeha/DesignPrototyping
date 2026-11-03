@@ -44,8 +44,12 @@ export default function App() {
   const [sensors, setSensors] = useState({ angle: 11, dev: 0, level: 0, brightness: 0, origin: 11 })
   const [lastUpdate, setLastUpdate] = useState(new Date())
   const [serialConnected, setSerialConnected] = useState(false)
+  const [serialConnecting, setSerialConnecting] = useState(false)
   const [serialMessage, setSerialMessage] = useState('데모 데이터 표시 중')
+  const [serialValue, setSerialValue] = useState<number | null>(null)
+  const [serialHistory, setSerialHistory] = useState<number[]>([])
   const serialPort = useRef<ArduinoPort | null>(null)
+  const serialConnectingRef = useRef(false)
   const visible = useMemo(() => selected === '전체 범죄'
     ? [{ name: '전체 범죄', total: 1225045, values: totals, color: '#7c3aed' }]
     : crimes.filter((c) => c.name === selected), [selected])
@@ -57,6 +61,16 @@ export default function App() {
   const withinDay = chartValues[0]
   const afterYear = chartValues[8]
   const rate = (value: number) => (value / total * 100).toFixed(1)
+  const serialChartPoints = useMemo(() => {
+    if (serialHistory.length < 2) return ''
+    const min = Math.min(...serialHistory)
+    const range = Math.max(...serialHistory) - min || 1
+    return serialHistory.map((value, index) => {
+      const x = index / (serialHistory.length - 1) * 800
+      const y = 190 - (value - min) / range * 170
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    }).join(' ')
+  }, [serialHistory])
 
   useEffect(() => {
     if (page !== 'sensors' || serialConnected) return
@@ -72,38 +86,75 @@ export default function App() {
   }, [page, serialConnected])
 
   const connectSerial = async () => {
+    if (serialConnectingRef.current || serialPort.current) return
     const serial = (navigator as Navigator & { serial?: { requestPort: () => Promise<ArduinoPort> } }).serial
     if (!serial) {
       setSerialMessage('이 브라우저는 Web Serial을 지원하지 않습니다')
       return
     }
+
+    serialConnectingRef.current = true
+    setSerialConnecting(true)
+    let port: ArduinoPort | null = null
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    let streamEnded = false
     try {
-      const port = await serial.requestPort()
+      port = await serial.requestPort()
       await port.open({ baudRate: 9600 })
       serialPort.current = port
       setSerialConnected(true)
       setSerialMessage('Arduino Uno · 9600 baud')
-      const reader = port.readable?.pipeThrough(new TextDecoderStream()).getReader()
+      const readable = port.readable
+      if (!readable) throw new Error('선택한 포트에서 데이터를 읽을 수 없습니다')
+      reader = readable.getReader()
+      const decoder = new TextDecoder()
       let buffer = ''
-      while (reader) {
+      while (true) {
         const { value, done } = await reader.read()
-        if (done) break
-        buffer += value
+        buffer += decoder.decode(value, { stream: !done })
         const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() ?? ''
+        buffer = done ? '' : lines.pop() ?? ''
         for (const line of lines) {
-          const originMatch = line.match(/origin:\s*(-?[\d.]+)/)
+          const trimmedLine = line.trim()
+          if (!trimmedLine) continue
+          const originMatch = trimmedLine.match(/origin:\s*(-?[\d.]+)/i)
           if (originMatch) setSensors((current) => ({ ...current, origin: Number(originMatch[1]) }))
-          const data = line.match(/angle:\s*(-?[\d.]+)\s+dev:\s*(-?[\d.]+)\s+level:\s*([\d.]+)\s+brightness:\s*(\d+)/)
-          if (data) {
-            setSensors((current) => ({ ...current, angle: Number(data[1]), dev: Number(data[2]), level: Number(data[3]), brightness: Number(data[4]) }))
+          const data = trimmedLine.match(/angle:\s*(-?[\d.]+)\s+dev:\s*(-?[\d.]+)\s+level:\s*([\d.]+)\s+brightness:\s*(\d+)/i)
+          const value = data ? Number(data[1]) : Number(trimmedLine)
+          if (Number.isFinite(value)) {
+            setSerialValue(value)
+            setSerialHistory((current) => [...current, value].slice(-100))
             setLastUpdate(new Date())
           }
+          if (data) {
+            setSensors((current) => ({ ...current, angle: Number(data[1]), dev: Number(data[2]), level: Number(data[3]), brightness: Number(data[4]) }))
+          }
+        }
+        if (done) {
+          streamEnded = true
+          break
         }
       }
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '알 수 없는 오류'
+      setSerialMessage(error instanceof DOMException && error.name === 'NotFoundError'
+        ? '포트 선택이 취소되었습니다'
+        : `시리얼 연결 오류: ${message}`)
+    } finally {
+      reader?.releaseLock()
+      if (port) {
+        if (serialPort.current === port) serialPort.current = null
+        try {
+          await port.close()
+          if (streamEnded) setSerialMessage('시리얼 연결이 종료되었습니다')
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '알 수 없는 오류'
+          setSerialMessage(`시리얼 포트 종료 오류: ${message}`)
+        }
+      }
+      serialConnectingRef.current = false
+      setSerialConnecting(false)
       setSerialConnected(false)
-      setSerialMessage('연결이 취소되었거나 포트를 열 수 없습니다')
     }
   }
 
@@ -143,6 +194,9 @@ export default function App() {
                 {crimes.map((c) => <option key={c.name}>{c.name}</option>)}
               </select>
             </label>
+            <button className="serial-button dashboard-serial-button" onClick={connectSerial} disabled={serialConnected || serialConnecting}>
+              {serialConnected ? '시리얼 연결됨' : serialConnecting ? '포트 선택 중…' : '시리얼 연결'}
+            </button>
             <a className="download" href="/crime-arrest-period-2025.csv" download>↓&nbsp;&nbsp;CSV 내보내기</a>
           </div>
         </header>
@@ -167,6 +221,32 @@ export default function App() {
             <div className="kpi-top"><span>1년 초과 장기 검거</span><b className="orange">LONG</b></div>
             <strong>{format(afterYear)}<small>건</small></strong>
             <p><em className="orange-text">{rate(afterYear)}%</em> 선택 유형 중</p>
+          </article>
+        </section>
+
+        <section className="serial-dashboard">
+          <article className="panel serial-current">
+            <div className="panel-heading">
+              <div><h2>현재 시리얼 값</h2><p>{serialConnected ? 'Arduino에서 실시간 수신 중' : serialMessage}</p></div>
+              <span className={`live-dot ${serialConnected ? '' : 'demo'}`} />
+            </div>
+            <strong>{serialValue === null ? '—' : serialValue.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}</strong>
+            <span>{serialValue === null ? '연결 후 숫자 데이터가 표시됩니다' : `최근 수신 ${lastUpdate.toLocaleTimeString('ko-KR')}`}</span>
+          </article>
+          <article className="panel serial-chart-panel">
+            <div className="panel-heading">
+              <div><h2>최근 수신값</h2><p>시리얼 입력의 최근 100개 · 메모리에서만 표시</p></div>
+              <span className="serial-chart-legend"><i />값</span>
+            </div>
+            <div className="serial-chart">
+              <div className="chart-grid"><i /><i /><i /><i /></div>
+              <svg viewBox="0 0 800 210" preserveAspectRatio="none" role="img" aria-label="시리얼 데이터 최근 100개 선 그래프">
+                {serialHistory.length > 1 && <polyline points={serialChartPoints} />}
+                {serialHistory.length === 1 && <circle cx="400" cy="105" r="4" />}
+              </svg>
+              {serialHistory.length === 0 && <span className="serial-chart-empty">시리얼 연결 후 데이터가 표시됩니다</span>}
+            </div>
+            <div className="serial-chart-footer"><span>{serialHistory.length} / 100개</span><span>9600 baud</span></div>
           </article>
         </section>
 
@@ -266,7 +346,7 @@ export default function App() {
             <div className="sensor-status">
               <span className={`live-dot ${serialConnected ? '' : 'demo'}`} />
               <div><strong>{serialConnected ? '실제 장치 연결됨' : serialMessage}</strong><small>최근 갱신 {lastUpdate.toLocaleTimeString('ko-KR')}</small></div>
-              <button className="serial-button" onClick={connectSerial}>{serialConnected ? '연결됨' : '장치 연결'}</button>
+              <button className="serial-button" onClick={connectSerial} disabled={serialConnected || serialConnecting}>{serialConnected ? '연결됨' : serialConnecting ? '포트 선택 중…' : '장치 연결'}</button>
             </div>
           </header>
 
