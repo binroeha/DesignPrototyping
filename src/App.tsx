@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 const periods = ['1일 이내', '2일 이내', '3일 이내', '10일 이내', '1개월 이내', '3개월 이내', '6개월 이내', '1년 이내', '1년 초과']
 const totals = [213691, 11941, 16135, 120264, 237910, 300945, 135562, 80592, 103302]
@@ -34,7 +34,9 @@ function Icon({ children }: { children: React.ReactNode }) {
 export default function App() {
   const [selected, setSelected] = useState('전체 범죄')
   const [activePeriod, setActivePeriod] = useState(5)
-  const [page, setPage] = useState<'dashboard' | 'insights'>('dashboard')
+  const [page, setPage] = useState<'dashboard' | 'insights' | 'sensors'>('dashboard')
+  const [sensors, setSensors] = useState({ temperature: 24.6, humidity: 58, air: 42, light: 684 })
+  const [lastUpdate, setLastUpdate] = useState(new Date())
   const visible = useMemo(() => selected === '전체 범죄'
     ? [{ name: '전체 범죄', total: 1225045, values: totals, color: '#7c3aed' }]
     : crimes.filter((c) => c.name === selected), [selected])
@@ -47,6 +49,20 @@ export default function App() {
   const afterYear = chartValues[8]
   const rate = (value: number) => (value / total * 100).toFixed(1)
 
+  useEffect(() => {
+    if (page !== 'sensors') return
+    const timer = window.setInterval(() => {
+      setSensors((current) => ({
+        temperature: +(current.temperature + (Math.random() - .5) * .4).toFixed(1),
+        humidity: Math.max(45, Math.min(70, current.humidity + Math.round((Math.random() - .5) * 2))),
+        air: Math.max(30, Math.min(70, current.air + Math.round((Math.random() - .5) * 4))),
+        light: Math.max(500, Math.min(850, current.light + Math.round((Math.random() - .5) * 35))),
+      }))
+      setLastUpdate(new Date())
+    }, 2500)
+    return () => window.clearInterval(timer)
+  }, [page])
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -55,6 +71,7 @@ export default function App() {
           <p className="nav-label">OVERVIEW</p>
           <a className={`nav-item ${page === 'dashboard' ? 'active' : ''}`} href="#dashboard" onClick={() => setPage('dashboard')}><Icon>⌁</Icon>분석 대시보드</a>
           <a className={`nav-item ${page === 'insights' ? 'active' : ''}`} href="#insights" onClick={() => setPage('insights')}><Icon>◇</Icon>핵심 인사이트</a>
+          <a className={`nav-item ${page === 'sensors' ? 'active' : ''}`} href="#sensors" onClick={() => setPage('sensors')}><Icon>◉</Icon>센서 모니터링</a>
           <p className="nav-label second">DATA</p>
           <a className="nav-item" href="/crime-arrest-period-2025.csv" download><Icon>↓</Icon>데이터 다운로드</a>
         </nav>
@@ -194,7 +211,78 @@ export default function App() {
             </article>
           </div>
         </section>
-        <footer>경찰청 범죄통계 원자료를 기반으로 시각화했습니다. 단위: 건, 구성비는 반올림으로 합계가 다를 수 있습니다.</footer>
+
+        <section className={`sensors-page ${page !== 'sensors' ? 'is-hidden' : ''}`} id="sensors">
+          <header>
+            <div>
+              <p className="eyebrow">ARDUINO SENSOR MONITOR</p>
+              <h1>센서 모니터링</h1>
+              <p className="subtitle">Arduino Uno · 실내 환경 센서의 현재 상태와 변화를 확인하세요.</p>
+            </div>
+            <div className="sensor-status">
+              <span className="live-dot" />
+              <div><strong>시뮬레이션 연결됨</strong><small>최근 갱신 {lastUpdate.toLocaleTimeString('ko-KR')}</small></div>
+            </div>
+          </header>
+
+          <div className="sensor-kpis">
+            <article className="panel sensor-card temperature">
+              <div className="sensor-card-top"><span className="sensor-symbol">T</span><em>정상</em></div>
+              <p>온도</p><strong>{sensors.temperature}<small>°C</small></strong>
+              <div className="sensor-range"><i style={{ width: `${sensors.temperature * 2.5}%` }} /></div>
+              <span>권장 범위 18–26°C</span>
+            </article>
+            <article className="panel sensor-card humidity">
+              <div className="sensor-card-top"><span className="sensor-symbol">H</span><em>쾌적</em></div>
+              <p>상대 습도</p><strong>{sensors.humidity}<small>%</small></strong>
+              <div className="sensor-range"><i style={{ width: `${sensors.humidity}%` }} /></div>
+              <span>권장 범위 40–60%</span>
+            </article>
+            <article className="panel sensor-card air">
+              <div className="sensor-card-top"><span className="sensor-symbol">A</span><em>좋음</em></div>
+              <p>공기질 지수</p><strong>{sensors.air}<small>AQI</small></strong>
+              <div className="sensor-range"><i style={{ width: `${sensors.air}%` }} /></div>
+              <span>50 이하 좋음</span>
+            </article>
+            <article className="panel sensor-card light">
+              <div className="sensor-card-top"><span className="sensor-symbol">L</span><em>밝음</em></div>
+              <p>조도</p><strong>{sensors.light}<small>lux</small></strong>
+              <div className="sensor-range"><i style={{ width: `${sensors.light / 10}%` }} /></div>
+              <span>업무 권장 500–750 lux</span>
+            </article>
+          </div>
+
+          <div className="sensor-layout">
+            <article className="panel sensor-chart-panel">
+              <div className="panel-heading">
+                <div><h2>실시간 환경 변화</h2><p>최근 60분 센서 측정 추이</p></div>
+                <div className="sensor-legend"><span><i className="temp-line" />온도</span><span><i className="humid-line" />습도</span></div>
+              </div>
+              <div className="sensor-chart">
+                <div className="chart-grid"><i /><i /><i /><i /></div>
+                <svg viewBox="0 0 800 210" preserveAspectRatio="none" aria-label="최근 센서 변화 그래프">
+                  <polyline className="temp-path" points="0,126 80,119 160,128 240,109 320,114 400,92 480,99 560,78 640,87 720,70 800,74" />
+                  <polyline className="humid-path" points="0,76 80,88 160,81 240,95 320,84 400,102 480,96 560,110 640,103 720,118 800,111" />
+                </svg>
+                <div className="chart-times"><span>1시간 전</span><span>45분 전</span><span>30분 전</span><span>15분 전</span><span>현재</span></div>
+              </div>
+            </article>
+            <article className="panel device-panel">
+              <div className="panel-heading"><div><h2>장치 상태</h2><p>Arduino 연결 정보</p></div></div>
+              <div className="device-visual"><div className="board"><span>UNO</span><i /><i /><i /><i /></div></div>
+              <dl>
+                <div><dt>보드</dt><dd>Arduino Uno R3</dd></div>
+                <div><dt>연결 방식</dt><dd>Serial / COM3</dd></div>
+                <div><dt>전송 주기</dt><dd>2.5초</dd></div>
+                <div><dt>수집 상태</dt><dd className="online">정상 수집 중</dd></div>
+              </dl>
+              <p className="demo-note">현재 화면은 샘플 데이터입니다. 실제 장치 연결 시 시리얼 API 연동이 필요합니다.</p>
+            </article>
+          </div>
+        </section>
+        <footer>{page === 'sensors'
+          ? '센서 화면은 샘플 데이터로 동작합니다. 실제 측정값 사용을 위해 Arduino 시리얼 연동이 필요합니다.'
+          : '경찰청 범죄통계 원자료를 기반으로 시각화했습니다. 단위: 건, 구성비는 반올림으로 합계가 다를 수 있습니다.'}</footer>
       </main>
     </div>
   )
