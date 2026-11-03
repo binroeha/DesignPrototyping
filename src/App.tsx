@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 
 const periods = ['1일 이내', '2일 이내', '3일 이내', '10일 이내', '1개월 이내', '3개월 이내', '6개월 이내', '1년 이내', '1년 초과']
 const totals = [213691, 11941, 16135, 120264, 237910, 300945, 135562, 80592, 103302]
@@ -31,25 +32,44 @@ function Icon({ children }: { children: React.ReactNode }) {
   return <span className="icon">{children}</span>
 }
 
-type ArduinoPort = {
-  open: (options: { baudRate: number }) => Promise<void>
-  close: () => Promise<void>
-  readable: ReadableStream<Uint8Array> | null
+type ReadingRow = {
+  id: number | string
+  value: number
+  created_at: string
 }
+
+function isReadingRow(row: unknown): row is ReadingRow {
+  if (typeof row !== 'object' || row === null) return false
+  const candidate = row as Record<string, unknown>
+  return (
+    (typeof candidate.id === 'number' || typeof candidate.id === 'string') &&
+    typeof candidate.value === 'number' &&
+    Number.isFinite(candidate.value) &&
+    typeof candidate.created_at === 'string' &&
+    Number.isFinite(Date.parse(candidate.created_at))
+  )
+}
+
+function mergeReadings(current: ReadingRow[], incoming: ReadingRow[]) {
+  const byId = new Map(current.map((reading) => [String(reading.id), reading]))
+  for (const reading of incoming) byId.set(String(reading.id), reading)
+  return [...byId.values()]
+    .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || String(a.id).localeCompare(String(b.id)))
+    .slice(-100)
+}
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null
 
 export default function App() {
   const [selected, setSelected] = useState('전체 범죄')
   const [activePeriod, setActivePeriod] = useState(5)
   const [page, setPage] = useState<'dashboard' | 'insights' | 'sensors'>('dashboard')
-  const [sensors, setSensors] = useState({ angle: 11, dev: 0, level: 0, brightness: 0, origin: 11 })
-  const [lastUpdate, setLastUpdate] = useState(new Date())
-  const [serialConnected, setSerialConnected] = useState(false)
-  const [serialConnecting, setSerialConnecting] = useState(false)
-  const [serialMessage, setSerialMessage] = useState('데모 데이터 표시 중')
-  const [serialValue, setSerialValue] = useState<number | null>(null)
-  const [serialHistory, setSerialHistory] = useState<number[]>([])
-  const serialPort = useRef<ArduinoPort | null>(null)
-  const serialConnectingRef = useRef(false)
+  const [readings, setReadings] = useState<ReadingRow[]>([])
+  const [readingsLoading, setReadingsLoading] = useState(true)
+  const [readingsError, setReadingsError] = useState('')
+  const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'connected' | 'error'>('connecting')
   const visible = useMemo(() => selected === '전체 범죄'
     ? [{ name: '전체 범죄', total: 1225045, values: totals, color: '#7c3aed' }]
     : crimes.filter((c) => c.name === selected), [selected])
@@ -61,102 +81,87 @@ export default function App() {
   const withinDay = chartValues[0]
   const afterYear = chartValues[8]
   const rate = (value: number) => (value / total * 100).toFixed(1)
-  const serialChartPoints = useMemo(() => {
-    if (serialHistory.length < 2) return ''
-    const min = Math.min(...serialHistory)
-    const range = Math.max(...serialHistory) - min || 1
-    return serialHistory.map((value, index) => {
-      const x = index / (serialHistory.length - 1) * 800
-      const y = 190 - (value - min) / range * 170
+  const readingValues = useMemo(() => readings.map((reading) => reading.value), [readings])
+  const latestReading = readings.at(-1)
+  const readingChartPoints = useMemo(() => {
+    if (readingValues.length < 2) return ''
+    return readingValues.map((value, index) => {
+      const x = 56 + index / (readingValues.length - 1) * 744
+      const clampedValue = Math.min(60, Math.max(-30, value))
+      const y = 190 - (clampedValue + 30) * 2
       return `${x.toFixed(1)},${y.toFixed(1)}`
     }).join(' ')
-  }, [serialHistory])
+  }, [readingValues])
+  const latestReadingY = latestReading
+    ? 190 - (Math.min(60, Math.max(-30, latestReading.value)) + 30) * 2
+    : 130
 
   useEffect(() => {
-    if (page !== 'sensors' || serialConnected) return
-    const timer = window.setInterval(() => {
-      setSensors((current) => {
-        const dev = +(current.dev + (Math.random() - .48) * 3).toFixed(1)
-        const level = dev > 6 ? Math.max(current.level, Math.min(1, (dev - 6) / 54)) : dev < -15 ? 0 : current.level
-        return { ...current, angle: +(current.origin + dev).toFixed(1), dev, level: +level.toFixed(2), brightness: Math.round(Math.pow(level, 1.8) * 255) }
-      })
-      setLastUpdate(new Date())
-    }, 2500)
-    return () => window.clearInterval(timer)
-  }, [page, serialConnected])
-
-  const connectSerial = async () => {
-    if (serialConnectingRef.current || serialPort.current) return
-    const serial = (navigator as Navigator & { serial?: { requestPort: () => Promise<ArduinoPort> } }).serial
-    if (!serial) {
-      setSerialMessage('이 브라우저는 Web Serial을 지원하지 않습니다')
+    if (!supabase) {
+      setReadingsError('VITE_SUPABASE_URL 또는 VITE_SUPABASE_ANON_KEY가 .env에 없습니다.')
+      setReadingsLoading(false)
+      setRealtimeStatus('error')
       return
     }
 
-    serialConnectingRef.current = true
-    setSerialConnecting(true)
-    let port: ArduinoPort | null = null
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
-    let streamEnded = false
-    try {
-      port = await serial.requestPort()
-      await port.open({ baudRate: 9600 })
-      serialPort.current = port
-      setSerialConnected(true)
-      setSerialMessage('Arduino Uno · 9600 baud')
-      const readable = port.readable
-      if (!readable) throw new Error('선택한 포트에서 데이터를 읽을 수 없습니다')
-      reader = readable.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      while (true) {
-        const { value, done } = await reader.read()
-        buffer += decoder.decode(value, { stream: !done })
-        const lines = buffer.split(/\r?\n/)
-        buffer = done ? '' : lines.pop() ?? ''
-        for (const line of lines) {
-          const trimmedLine = line.trim()
-          if (!trimmedLine) continue
-          const originMatch = trimmedLine.match(/origin:\s*(-?[\d.]+)/i)
-          if (originMatch) setSensors((current) => ({ ...current, origin: Number(originMatch[1]) }))
-          const data = trimmedLine.match(/angle:\s*(-?[\d.]+)\s+dev:\s*(-?[\d.]+)\s+level:\s*([\d.]+)\s+brightness:\s*(\d+)/i)
-          const value = data ? Number(data[1]) : Number(trimmedLine)
-          if (Number.isFinite(value)) {
-            setSerialValue(value)
-            setSerialHistory((current) => [...current, value].slice(-100))
-            setLastUpdate(new Date())
-          }
-          if (data) {
-            setSensors((current) => ({ ...current, angle: Number(data[1]), dev: Number(data[2]), level: Number(data[3]), brightness: Number(data[4]) }))
-          }
+    let active = true
+    let initialLoadComplete = false
+    const pendingRealtimeRows: ReadingRow[] = []
+    const channel = supabase
+      .channel('dashboard-readings')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'readings' }, (payload) => {
+        const row: unknown = payload.new
+        if (!isReadingRow(row)) {
+          setReadingsError('Realtime 행에서 id, value, created_at 값을 읽을 수 없습니다.')
+          return
         }
-        if (done) {
-          streamEnded = true
-          break
+        if (initialLoadComplete) {
+          setReadings((current) => mergeReadings(current, [row]))
+        } else {
+          pendingRealtimeRows.push(row)
         }
+      })
+      .subscribe((status) => {
+        if (!active) return
+        if (status === 'SUBSCRIBED') {
+          setRealtimeStatus('connected')
+          setReadingsError('')
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setRealtimeStatus('error')
+          setReadingsError(`Supabase Realtime 연결 실패: ${status}`)
+        } else if (status === 'CLOSED') {
+          setRealtimeStatus('error')
+        }
+      })
+
+    const loadReadings = async () => {
+      const { data, error } = await supabase
+        .from('readings')
+        .select('id, value, created_at')
+        .order('created_at', { ascending: false })
+        .limit(100)
+
+      if (!active) return
+      if (error) {
+        setReadingsError(`Supabase readings 조회 실패: ${error.message}`)
+        setReadingsLoading(false)
+        initialLoadComplete = true
+        if (pendingRealtimeRows.length) setReadings((current) => mergeReadings(current, pendingRealtimeRows))
+        return
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '알 수 없는 오류'
-      setSerialMessage(error instanceof DOMException && error.name === 'NotFoundError'
-        ? '포트 선택이 취소되었습니다'
-        : `시리얼 연결 오류: ${message}`)
-    } finally {
-      reader?.releaseLock()
-      if (port) {
-        if (serialPort.current === port) serialPort.current = null
-        try {
-          await port.close()
-          if (streamEnded) setSerialMessage('시리얼 연결이 종료되었습니다')
-        } catch (error) {
-          const message = error instanceof Error ? error.message : '알 수 없는 오류'
-          setSerialMessage(`시리얼 포트 종료 오류: ${message}`)
-        }
-      }
-      serialConnectingRef.current = false
-      setSerialConnecting(false)
-      setSerialConnected(false)
+
+      const initialRows = (data ?? []).filter(isReadingRow).reverse()
+      setReadings(mergeReadings(initialRows, pendingRealtimeRows))
+      initialLoadComplete = true
+      setReadingsLoading(false)
     }
-  }
+
+    void loadReadings()
+    return () => {
+      active = false
+      void supabase.removeChannel(channel)
+    }
+  }, [supabase])
 
   return (
     <div className="app-shell">
@@ -194,9 +199,6 @@ export default function App() {
                 {crimes.map((c) => <option key={c.name}>{c.name}</option>)}
               </select>
             </label>
-            <button className="serial-button dashboard-serial-button" onClick={connectSerial} disabled={serialConnected || serialConnecting}>
-              {serialConnected ? '시리얼 연결됨' : serialConnecting ? '포트 선택 중…' : '시리얼 연결'}
-            </button>
             <a className="download" href="/crime-arrest-period-2025.csv" download>↓&nbsp;&nbsp;CSV 내보내기</a>
           </div>
         </header>
@@ -221,32 +223,6 @@ export default function App() {
             <div className="kpi-top"><span>1년 초과 장기 검거</span><b className="orange">LONG</b></div>
             <strong>{format(afterYear)}<small>건</small></strong>
             <p><em className="orange-text">{rate(afterYear)}%</em> 선택 유형 중</p>
-          </article>
-        </section>
-
-        <section className="serial-dashboard">
-          <article className="panel serial-current">
-            <div className="panel-heading">
-              <div><h2>현재 시리얼 값</h2><p>{serialConnected ? 'Arduino에서 실시간 수신 중' : serialMessage}</p></div>
-              <span className={`live-dot ${serialConnected ? '' : 'demo'}`} />
-            </div>
-            <strong>{serialValue === null ? '—' : serialValue.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}</strong>
-            <span>{serialValue === null ? '연결 후 숫자 데이터가 표시됩니다' : `최근 수신 ${lastUpdate.toLocaleTimeString('ko-KR')}`}</span>
-          </article>
-          <article className="panel serial-chart-panel">
-            <div className="panel-heading">
-              <div><h2>최근 수신값</h2><p>시리얼 입력의 최근 100개 · 메모리에서만 표시</p></div>
-              <span className="serial-chart-legend"><i />값</span>
-            </div>
-            <div className="serial-chart">
-              <div className="chart-grid"><i /><i /><i /><i /></div>
-              <svg viewBox="0 0 800 210" preserveAspectRatio="none" role="img" aria-label="시리얼 데이터 최근 100개 선 그래프">
-                {serialHistory.length > 1 && <polyline points={serialChartPoints} />}
-                {serialHistory.length === 1 && <circle cx="400" cy="105" r="4" />}
-              </svg>
-              {serialHistory.length === 0 && <span className="serial-chart-empty">시리얼 연결 후 데이터가 표시됩니다</span>}
-            </div>
-            <div className="serial-chart-footer"><span>{serialHistory.length} / 100개</span><span>9600 baud</span></div>
           </article>
         </section>
 
@@ -339,78 +315,71 @@ export default function App() {
         <section className={`sensors-page ${page !== 'sensors' ? 'is-hidden' : ''}`} id="sensors">
           <header>
             <div>
-              <p className="eyebrow">ARDUINO SENSOR MONITOR</p>
-              <h1>MPU6050 조명 제어 모니터</h1>
-              <p className="subtitle">기울기와 LED 스트립 PWM 출력 상태를 실시간으로 확인하세요.</p>
+              <p className="eyebrow">MPU TILT MONITOR</p>
+              <h1>기울기 측정</h1>
+              <p className="subtitle">기준 자세에서 벗어난 기울기만 Supabase에서 실시간으로 확인합니다.</p>
             </div>
             <div className="sensor-status">
-              <span className={`live-dot ${serialConnected ? '' : 'demo'}`} />
-              <div><strong>{serialConnected ? '실제 장치 연결됨' : serialMessage}</strong><small>최근 갱신 {lastUpdate.toLocaleTimeString('ko-KR')}</small></div>
-              <button className="serial-button" onClick={connectSerial} disabled={serialConnected || serialConnecting}>{serialConnected ? '연결됨' : serialConnecting ? '포트 선택 중…' : '장치 연결'}</button>
+              <span className={`live-dot ${realtimeStatus === 'connected' ? '' : 'demo'}`} />
+              <div>
+                <strong>{readingsError || (realtimeStatus === 'connected' ? 'Supabase Realtime 연결됨' : 'Supabase Realtime 연결 중')}</strong>
+                <small>{readingsLoading ? '초기 데이터 조회 중' : 'readings INSERT 구독'}</small>
+              </div>
             </div>
           </header>
 
-          <div className="sensor-kpis">
+          <div className="sensor-kpis tilt-kpis">
             <article className="panel sensor-card temperature">
-              <div className="sensor-card-top"><span className="sensor-symbol">∠</span><em>ROLL</em></div>
-              <p>현재 측정 각도</p><strong>{sensors.angle.toFixed(1)}<small>°</small></strong>
-              <div className="sensor-range"><i style={{ width: `${Math.min(100, Math.max(0, (sensors.angle + 90) / 1.8))}%` }} /></div>
-              <span>MPU6050 roll 축 측정값</span>
-            </article>
-            <article className="panel sensor-card humidity">
-              <div className="sensor-card-top"><span className="sensor-symbol">Δ</span><em>{sensors.dev > 6 ? '앞' : sensors.dev < -15 ? '뒤' : '유지'}</em></div>
-              <p>보정된 기울기</p><strong>{sensors.dev.toFixed(1)}<small>°</small></strong>
-              <div className="sensor-range"><i style={{ width: `${Math.min(100, Math.max(0, (sensors.dev + 60) / 1.2))}%` }} /></div>
-              <span>smoothDev · 원점 대비 편차</span>
-            </article>
-            <article className="panel sensor-card air">
-              <div className="sensor-card-top"><span className="sensor-symbol">L</span><em>{sensors.level > 0 ? '켜짐' : '꺼짐'}</em></div>
-              <p>밝기 레벨</p><strong>{(sensors.level * 100).toFixed(0)}<small>%</small></strong>
-              <div className="sensor-range"><i style={{ width: `${sensors.level * 100}%` }} /></div>
-              <span>level {sensors.level.toFixed(2)} · 이전 최대값 유지</span>
-            </article>
-            <article className="panel sensor-card light">
-              <div className="sensor-card-top"><span className="sensor-symbol">P</span><em>PIN 9</em></div>
-              <p>PWM 출력</p><strong>{sensors.brightness}<small>/ 255</small></strong>
-              <div className="sensor-range"><i style={{ width: `${sensors.brightness / 2.55}%` }} /></div>
-              <span>감마 1.8 적용 출력값</span>
+              <div className="sensor-card-top"><span className="sensor-symbol">∠</span><em>기울기</em></div>
+              <p>기준 자세 대비 기울기</p>
+              <strong>{latestReading ? latestReading.value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : '—'}<small>°</small></strong>
+              <span>{readingsLoading ? 'Supabase에서 데이터 조회 중' : readingsError || (latestReading ? `마지막 측정 ${new Date(latestReading.created_at).toLocaleString('ko-KR')}` : '아직 저장된 기울기 값이 없습니다')}</span>
             </article>
           </div>
 
           <div className="sensor-layout">
             <article className="panel sensor-chart-panel">
               <div className="panel-heading">
-                <div><h2>실시간 기울기 변화</h2><p>roll 각도와 보정 편차의 최근 변화</p></div>
-                <div className="sensor-legend"><span><i className="temp-line" />angle</span><span><i className="humid-line" />smoothDev</span></div>
+                <div><h2>최근 기울기 변화</h2><p>원점 대비 편차(dev) · 최근 100개</p></div>
+                <span className="serial-chart-legend"><i />각도 (°)</span>
               </div>
-              <div className="sensor-chart">
-                <div className="chart-grid"><i /><i /><i /><i /></div>
-                <svg viewBox="0 0 800 210" preserveAspectRatio="none" aria-label="최근 기울기 변화 그래프">
-                  <polyline className="temp-path" points="0,126 80,119 160,128 240,109 320,114 400,92 480,99 560,78 640,87 720,70 800,74" />
-                  <polyline className="humid-path" points="0,76 80,88 160,81 240,95 320,84 400,102 480,96 560,110 640,103 720,118 800,111" />
+              <div className="serial-chart">
+                <svg viewBox="0 0 800 210" preserveAspectRatio="none" role="img" aria-label="기준 자세 대비 기울기 최근 100개 선 그래프">
+                  <text className="tilt-axis-title" x="14" y="100" transform="rotate(-90 14 100)">기울기 (°)</text>
+                  <line className="tilt-axis" x1="52" y1="10" x2="52" y2="190" />
+                  <line className="tilt-gridline" x1="52" y1="10" x2="800" y2="10" />
+                  <line className="tilt-gridline" x1="52" y1="70" x2="800" y2="70" />
+                  <line className="tilt-zero-axis" x1="52" y1="130" x2="800" y2="130" />
+                  <line className="tilt-gridline" x1="52" y1="190" x2="800" y2="190" />
+                  <text className="tilt-axis-label" x="44" y="14" textAnchor="end">60°</text>
+                  <text className="tilt-axis-label" x="44" y="74" textAnchor="end">30°</text>
+                  <text className="tilt-axis-label" x="44" y="134" textAnchor="end">0°</text>
+                  <text className="tilt-axis-label" x="44" y="194" textAnchor="end">-30°</text>
+                  {readingValues.length > 1 && <polyline points={readingChartPoints} />}
+                  {readingValues.length === 1 && <circle cx="428" cy={latestReadingY} r="4" />}
                 </svg>
-                <div className="chart-times"><span>50초 전</span><span>40초 전</span><span>30초 전</span><span>20초 전</span><span>현재</span></div>
+                {readingValues.length === 0 && <span className="serial-chart-empty">{readingsLoading ? '데이터 조회 중…' : readingsError || '표시할 측정값이 없습니다'}</span>}
+              </div>
+              <div className="serial-chart-footer">
+                <span>{readings.length} / 100개</span>
+                <span>{readingsError || (realtimeStatus === 'connected' ? 'Realtime 구독 중' : 'Realtime 연결 안 됨')}</span>
               </div>
             </article>
             <article className="panel device-panel">
-              <div className="panel-heading"><div><h2>제어 설정</h2><p>현재 스케치 기준값</p></div></div>
-              <div className="device-visual"><div className="board"><span>UNO</span><i /><i /><i /><i /></div></div>
+              <div className="panel-heading"><div><h2>Supabase 데이터 연결</h2><p>.env 설정 · Realtime 구독</p></div></div>
               <dl>
-                <div><dt>센서 / 주소</dt><dd>MPU6050 / 0x68</dd></div>
-                <div><dt>축 / 방향</dt><dd>ROLL / +1.0</dd></div>
-                <div><dt>자동 원점</dt><dd>{sensors.origin.toFixed(2)}°</dd></div>
-                <div><dt>유지 / 최대 구간</dt><dd>6° / 60°</dd></div>
-                <div><dt>OFF 기준 / 확인</dt><dd>-15° / 100ms</dd></div>
-                <div><dt>평활 / 감마</dt><dd>0.4 / 1.8</dd></div>
-                <div><dt>수집 주기</dt><dd>20ms · 50Hz</dd></div>
-                <div><dt>스트립 상태</dt><dd className={sensors.brightness > 0 ? 'online' : ''}>{sensors.brightness > 0 ? `출력 중 · ${sensors.brightness}` : '꺼짐'}</dd></div>
+                <div><dt>테이블</dt><dd>public.readings</dd></div>
+                <div><dt>값 열</dt><dd>value</dd></div>
+                <div><dt>초기 조회 범위</dt><dd>최신 100개</dd></div>
+                <div><dt>새 행 구독</dt><dd className={realtimeStatus === 'connected' ? 'online' : ''}>{realtimeStatus === 'connected' ? '연결됨' : '연결 안 됨'}</dd></div>
+                <div><dt>마지막 기록</dt><dd>{latestReading ? new Date(latestReading.created_at).toLocaleString('ko-KR') : '없음'}</dd></div>
               </dl>
-              <p className="demo-note">{serialConnected ? 'Arduino 시리얼 데이터를 실시간 수신하고 있습니다.' : '장치 연결을 누르면 브라우저에서 Arduino 포트를 선택할 수 있습니다. 연결 전에는 샘플 데이터가 표시됩니다.'}</p>
+              <p className="demo-note">{readingsError || (readingsLoading ? 'Supabase에서 측정값을 불러오고 있습니다.' : '측정 데이터는 Supabase에서 읽으며, 이 화면에서는 데모 측정값을 생성하지 않습니다.')}</p>
             </article>
           </div>
         </section>
         <footer>{page === 'sensors'
-          ? '센서 화면은 샘플 데이터로 동작합니다. 실제 측정값 사용을 위해 Arduino 시리얼 연동이 필요합니다.'
+          ? '이 화면은 Supabase readings 데이터만 표시합니다. 임의의 데모 측정값은 생성하지 않습니다.'
           : '경찰청 범죄통계 원자료를 기반으로 시각화했습니다. 단위: 건, 구성비는 반올림으로 합계가 다를 수 있습니다.'}</footer>
       </main>
     </div>

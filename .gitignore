@@ -3,6 +3,7 @@ dist/
 build/
 .cache/
 .env
+viola.env
 .vite/
 vite.config.*.timestamp-*
 *.tsbuildinfo
