@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const periods = ['1일 이내', '2일 이내', '3일 이내', '10일 이내', '1개월 이내', '3개월 이내', '6개월 이내', '1년 이내', '1년 초과']
 const totals = [213691, 11941, 16135, 120264, 237910, 300945, 135562, 80592, 103302]
@@ -31,12 +31,21 @@ function Icon({ children }: { children: React.ReactNode }) {
   return <span className="icon">{children}</span>
 }
 
+type ArduinoPort = {
+  open: (options: { baudRate: number }) => Promise<void>
+  close: () => Promise<void>
+  readable: ReadableStream<Uint8Array> | null
+}
+
 export default function App() {
   const [selected, setSelected] = useState('전체 범죄')
   const [activePeriod, setActivePeriod] = useState(5)
   const [page, setPage] = useState<'dashboard' | 'insights' | 'sensors'>('dashboard')
-  const [sensors, setSensors] = useState({ temperature: 24.6, humidity: 58, air: 42, light: 684 })
+  const [sensors, setSensors] = useState({ angle: 11, dev: 0, level: 0, brightness: 0, origin: 11 })
   const [lastUpdate, setLastUpdate] = useState(new Date())
+  const [serialConnected, setSerialConnected] = useState(false)
+  const [serialMessage, setSerialMessage] = useState('데모 데이터 표시 중')
+  const serialPort = useRef<ArduinoPort | null>(null)
   const visible = useMemo(() => selected === '전체 범죄'
     ? [{ name: '전체 범죄', total: 1225045, values: totals, color: '#7c3aed' }]
     : crimes.filter((c) => c.name === selected), [selected])
@@ -50,18 +59,53 @@ export default function App() {
   const rate = (value: number) => (value / total * 100).toFixed(1)
 
   useEffect(() => {
-    if (page !== 'sensors') return
+    if (page !== 'sensors' || serialConnected) return
     const timer = window.setInterval(() => {
-      setSensors((current) => ({
-        temperature: +(current.temperature + (Math.random() - .5) * .4).toFixed(1),
-        humidity: Math.max(45, Math.min(70, current.humidity + Math.round((Math.random() - .5) * 2))),
-        air: Math.max(30, Math.min(70, current.air + Math.round((Math.random() - .5) * 4))),
-        light: Math.max(500, Math.min(850, current.light + Math.round((Math.random() - .5) * 35))),
-      }))
+      setSensors((current) => {
+        const dev = +(current.dev + (Math.random() - .48) * 3).toFixed(1)
+        const level = dev > 6 ? Math.max(current.level, Math.min(1, (dev - 6) / 54)) : dev < -15 ? 0 : current.level
+        return { ...current, angle: +(current.origin + dev).toFixed(1), dev, level: +level.toFixed(2), brightness: Math.round(Math.pow(level, 1.8) * 255) }
+      })
       setLastUpdate(new Date())
     }, 2500)
     return () => window.clearInterval(timer)
-  }, [page])
+  }, [page, serialConnected])
+
+  const connectSerial = async () => {
+    const serial = (navigator as Navigator & { serial?: { requestPort: () => Promise<ArduinoPort> } }).serial
+    if (!serial) {
+      setSerialMessage('이 브라우저는 Web Serial을 지원하지 않습니다')
+      return
+    }
+    try {
+      const port = await serial.requestPort()
+      await port.open({ baudRate: 9600 })
+      serialPort.current = port
+      setSerialConnected(true)
+      setSerialMessage('Arduino Uno · 9600 baud')
+      const reader = port.readable?.pipeThrough(new TextDecoderStream()).getReader()
+      let buffer = ''
+      while (reader) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += value
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          const originMatch = line.match(/origin:\s*(-?[\d.]+)/)
+          if (originMatch) setSensors((current) => ({ ...current, origin: Number(originMatch[1]) }))
+          const data = line.match(/angle:\s*(-?[\d.]+)\s+dev:\s*(-?[\d.]+)\s+level:\s*([\d.]+)\s+brightness:\s*(\d+)/)
+          if (data) {
+            setSensors((current) => ({ ...current, angle: Number(data[1]), dev: Number(data[2]), level: Number(data[3]), brightness: Number(data[4]) }))
+            setLastUpdate(new Date())
+          }
+        }
+      }
+    } catch {
+      setSerialConnected(false)
+      setSerialMessage('연결이 취소되었거나 포트를 열 수 없습니다')
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -216,67 +260,72 @@ export default function App() {
           <header>
             <div>
               <p className="eyebrow">ARDUINO SENSOR MONITOR</p>
-              <h1>센서 모니터링</h1>
-              <p className="subtitle">Arduino Uno · 실내 환경 센서의 현재 상태와 변화를 확인하세요.</p>
+              <h1>MPU6050 조명 제어 모니터</h1>
+              <p className="subtitle">기울기와 LED 스트립 PWM 출력 상태를 실시간으로 확인하세요.</p>
             </div>
             <div className="sensor-status">
-              <span className="live-dot" />
-              <div><strong>시뮬레이션 연결됨</strong><small>최근 갱신 {lastUpdate.toLocaleTimeString('ko-KR')}</small></div>
+              <span className={`live-dot ${serialConnected ? '' : 'demo'}`} />
+              <div><strong>{serialConnected ? '실제 장치 연결됨' : serialMessage}</strong><small>최근 갱신 {lastUpdate.toLocaleTimeString('ko-KR')}</small></div>
+              <button className="serial-button" onClick={connectSerial}>{serialConnected ? '연결됨' : '장치 연결'}</button>
             </div>
           </header>
 
           <div className="sensor-kpis">
             <article className="panel sensor-card temperature">
-              <div className="sensor-card-top"><span className="sensor-symbol">T</span><em>정상</em></div>
-              <p>온도</p><strong>{sensors.temperature}<small>°C</small></strong>
-              <div className="sensor-range"><i style={{ width: `${sensors.temperature * 2.5}%` }} /></div>
-              <span>권장 범위 18–26°C</span>
+              <div className="sensor-card-top"><span className="sensor-symbol">∠</span><em>ROLL</em></div>
+              <p>현재 측정 각도</p><strong>{sensors.angle.toFixed(1)}<small>°</small></strong>
+              <div className="sensor-range"><i style={{ width: `${Math.min(100, Math.max(0, (sensors.angle + 90) / 1.8))}%` }} /></div>
+              <span>MPU6050 roll 축 측정값</span>
             </article>
             <article className="panel sensor-card humidity">
-              <div className="sensor-card-top"><span className="sensor-symbol">H</span><em>쾌적</em></div>
-              <p>상대 습도</p><strong>{sensors.humidity}<small>%</small></strong>
-              <div className="sensor-range"><i style={{ width: `${sensors.humidity}%` }} /></div>
-              <span>권장 범위 40–60%</span>
+              <div className="sensor-card-top"><span className="sensor-symbol">Δ</span><em>{sensors.dev > 6 ? '앞' : sensors.dev < -15 ? '뒤' : '유지'}</em></div>
+              <p>보정된 기울기</p><strong>{sensors.dev.toFixed(1)}<small>°</small></strong>
+              <div className="sensor-range"><i style={{ width: `${Math.min(100, Math.max(0, (sensors.dev + 60) / 1.2))}%` }} /></div>
+              <span>smoothDev · 원점 대비 편차</span>
             </article>
             <article className="panel sensor-card air">
-              <div className="sensor-card-top"><span className="sensor-symbol">A</span><em>좋음</em></div>
-              <p>공기질 지수</p><strong>{sensors.air}<small>AQI</small></strong>
-              <div className="sensor-range"><i style={{ width: `${sensors.air}%` }} /></div>
-              <span>50 이하 좋음</span>
+              <div className="sensor-card-top"><span className="sensor-symbol">L</span><em>{sensors.level > 0 ? '켜짐' : '꺼짐'}</em></div>
+              <p>밝기 레벨</p><strong>{(sensors.level * 100).toFixed(0)}<small>%</small></strong>
+              <div className="sensor-range"><i style={{ width: `${sensors.level * 100}%` }} /></div>
+              <span>level {sensors.level.toFixed(2)} · 이전 최대값 유지</span>
             </article>
             <article className="panel sensor-card light">
-              <div className="sensor-card-top"><span className="sensor-symbol">L</span><em>밝음</em></div>
-              <p>조도</p><strong>{sensors.light}<small>lux</small></strong>
-              <div className="sensor-range"><i style={{ width: `${sensors.light / 10}%` }} /></div>
-              <span>업무 권장 500–750 lux</span>
+              <div className="sensor-card-top"><span className="sensor-symbol">P</span><em>PIN 9</em></div>
+              <p>PWM 출력</p><strong>{sensors.brightness}<small>/ 255</small></strong>
+              <div className="sensor-range"><i style={{ width: `${sensors.brightness / 2.55}%` }} /></div>
+              <span>감마 1.8 적용 출력값</span>
             </article>
           </div>
 
           <div className="sensor-layout">
             <article className="panel sensor-chart-panel">
               <div className="panel-heading">
-                <div><h2>실시간 환경 변화</h2><p>최근 60분 센서 측정 추이</p></div>
-                <div className="sensor-legend"><span><i className="temp-line" />온도</span><span><i className="humid-line" />습도</span></div>
+                <div><h2>실시간 기울기 변화</h2><p>roll 각도와 보정 편차의 최근 변화</p></div>
+                <div className="sensor-legend"><span><i className="temp-line" />angle</span><span><i className="humid-line" />smoothDev</span></div>
               </div>
               <div className="sensor-chart">
                 <div className="chart-grid"><i /><i /><i /><i /></div>
-                <svg viewBox="0 0 800 210" preserveAspectRatio="none" aria-label="최근 센서 변화 그래프">
+                <svg viewBox="0 0 800 210" preserveAspectRatio="none" aria-label="최근 기울기 변화 그래프">
                   <polyline className="temp-path" points="0,126 80,119 160,128 240,109 320,114 400,92 480,99 560,78 640,87 720,70 800,74" />
                   <polyline className="humid-path" points="0,76 80,88 160,81 240,95 320,84 400,102 480,96 560,110 640,103 720,118 800,111" />
                 </svg>
-                <div className="chart-times"><span>1시간 전</span><span>45분 전</span><span>30분 전</span><span>15분 전</span><span>현재</span></div>
+                <div className="chart-times"><span>50초 전</span><span>40초 전</span><span>30초 전</span><span>20초 전</span><span>현재</span></div>
               </div>
             </article>
             <article className="panel device-panel">
-              <div className="panel-heading"><div><h2>장치 상태</h2><p>Arduino 연결 정보</p></div></div>
+              <div className="panel-heading"><div><h2>제어 설정</h2><p>현재 스케치 기준값</p></div></div>
               <div className="device-visual"><div className="board"><span>UNO</span><i /><i /><i /><i /></div></div>
               <dl>
-                <div><dt>보드</dt><dd>Arduino Uno R3</dd></div>
-                <div><dt>연결 방식</dt><dd>Serial / COM3</dd></div>
-                <div><dt>전송 주기</dt><dd>2.5초</dd></div>
-                <div><dt>수집 상태</dt><dd className="online">정상 수집 중</dd></div>
+                <div><dt>센서 / 주소</dt><dd>MPU6050 / 0x68</dd></div>
+                <div><dt>축 / 방향</dt><dd>ROLL / +1.0</dd></div>
+                <div><dt>자동 원점</dt><dd>{sensors.origin.toFixed(2)}°</dd></div>
+                <div><dt>유지 / 최대 구간</dt><dd>6° / 60°</dd></div>
+                <div><dt>OFF 기준 / 확인</dt><dd>-15° / 100ms</dd></div>
+                <div><dt>평활 / 감마</dt><dd>0.4 / 1.8</dd></div>
+                <div><dt>수집 주기</dt><dd>20ms · 50Hz</dd></div>
+                <div><dt>스트립 상태</dt><dd className={sensors.brightness > 0 ? 'online' : ''}>{sensors.brightness > 0 ? `출력 중 · ${sensors.brightness}` : '꺼짐'}</dd></div>
               </dl>
-              <p className="demo-note">현재 화면은 샘플 데이터입니다. 실제 장치 연결 시 시리얼 API 연동이 필요합니다.</p>
+              <p className="demo-note">{serialConnected ? 'Arduino 시리얼 데이터를 실시간 수신하고 있습니다.' : '장치 연결을 누르면 브라우저에서 Arduino 포트를 선택할 수 있습니다. 연결 전에는 샘플 데이터가 표시됩니다.'}</p>
             </article>
           </div>
         </section>
