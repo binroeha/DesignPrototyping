@@ -28,9 +28,9 @@
 
 | 슬롯 | 위치 |
 | --- | --- |
-| 제품 이름 | `PRODUCT.name` |
-| 제품 컨셉 (한 줄) | `PRODUCT.concept` |
-| 제품 설명 (2~3문장) | `PRODUCT.description` |
+| 제품 이름 | 흔들리는 달님 |
+| 제품 컨셉 (한 줄) | 달의 흔들림에 따라 밝기가 변하는 램프 |
+| 제품 설명 (2~3문장) | 달을 앞뒤로 흔들며 밝기의 변화를 보고 체감한다. |
 | 메인 컬러 | globals.css의 `--brand`, `--on-brand`. 기본값 블루 |
 | 폰트 | globals.css의 `--font-sans`(메인, 기본값 Pretendard), `--font-display`(서브, 기본값 Rising CHAI). 서브는 제품 이름과 센서값 숫자에만 |
 
@@ -38,7 +38,7 @@
 
 | 기능 | 컴포넌트 | 데이터 |
 | --- | --- | --- |
-| 센서값에 따라 밝아지는 달 (검은 바탕 정가운데) | SensorMoon | 최신 `sensor_readings.value` |
+| 센서값에 따라 밝아지고 앞뒤로 흔들리는 달 (검은 바탕 정가운데) | SensorMoon | 최신 `sensor_readings.value` |
 | 센서값 플롯 | SensorChart | 최근 60개 + realtime INSERT |
 | LED 전원 on/off | PowerToggle | `device_state.led_on` 업데이트 |
 | 센서 연결, 끊기 | ConnectionControl | realtime 채널 구독, 해제 |

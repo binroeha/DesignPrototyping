@@ -25,7 +25,10 @@ def parse_tilt_deviation(line: str) -> int | float | None:
         line,
         re.IGNORECASE,
     )
-    raw_value = deviation.group(1) if deviation else line.strip()
+    if deviation:
+        raw_value = deviation.group(1)
+    else:
+        raw_value = line.rsplit(",", maxsplit=1)[-1].strip()
     try:
         value = float(raw_value)
     except ValueError:
